@@ -328,6 +328,7 @@ func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 			},
 		},
 		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
 					Name:  "static-nginx",
@@ -339,7 +340,7 @@ func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 						},
 					},
 					Command: []string{
-						"/bin/sh",
+						"sh", "-c", "echo 'Hello, world!' && sleep 5",
 					},
 					Args: []string{
 						"-c",

@@ -1,0 +1,16 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: my-pipeline-run
+spec:
+  count: 3
+  message: "Hello, World!"
+  pipelineRef:
+    name: my-pipeline
+  params:
+    - name: message
+      value: $(message)
+  workspaces:
+    - name: my-workspace
+      persistentVolumeClaim:
+        claimName: my-pvc
