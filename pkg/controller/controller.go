@@ -329,7 +329,7 @@ func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 			},
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
+			RestartPolicy: corev1.RestartPolicyOnFailure,
 			Containers: []corev1.Container{
 				{
 					Name:  "static-nginx",
