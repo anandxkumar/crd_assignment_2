@@ -191,7 +191,7 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
-// total number of 'Running' pods
+// total number of 'completed' pods
 func (c *Controller) totalPodsUp(foo *v1alpha1.TaskRun) int {
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -207,7 +207,7 @@ func (c *Controller) totalPodsUp(foo *v1alpha1.TaskRun) int {
 
 	upPods := 0
 	for _, pod := range podsList.Items {
-		if pod.ObjectMeta.DeletionTimestamp.IsZero() && pod.Status.Phase == "Running" {
+		if pod.Status.Phase == corev1.PodSucceeded {
 			upPods++
 		}
 	}
@@ -318,6 +318,7 @@ func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 	labels := map[string]string{
 		"controller": foo.Name,
 	}
+	fmt.Println("Message: ", foo.Spec.Message)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:    labels,
@@ -340,7 +341,7 @@ func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 						},
 					},
 					Command: []string{
-						"sh", "-c", "echo 'Hello, world!' && sleep 5",
+						"bin/sh", "-c", "echo 'Message: $(foo.Spec.Message) !' && sleep 5",
 					},
 					Args: []string{
 						"-c",
