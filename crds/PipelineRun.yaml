@@ -37,3 +37,12 @@ spec:
                   type: string
                 count:
                   type: integer
+---
+apiVersion: "run.com/v1alpha1"
+kind: TaskRun
+metadata:
+  name: tr-updated
+spec:
+  message: "Task Runsssss"
+  count: 3
+---

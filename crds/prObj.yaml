@@ -1,0 +1,7 @@
+apiVersion: "run.com/v1alpha1"
+kind: PipelineRun
+metadata:
+  name: pr-2
+spec:
+  message: "Pipeline Run works"
+  count: 2
