@@ -341,7 +341,7 @@ func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 						},
 					},
 					Command: []string{
-						"bin/sh", "-c", "echo 'Message: $(foo.Spec.Message) !' && sleep 5",
+						"bin/sh", "-c", "echo 'Message: $(MESSAGE) !' && sleep 5",
 					},
 					Args: []string{
 						"-c",

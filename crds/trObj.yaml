@@ -4,4 +4,4 @@ metadata:
   name: tr-2
 spec:
   message: "Task Run"
-  count: 3
+  count: 4
