@@ -53,6 +53,9 @@ type Controller struct {
 	// sampleclientset is a clientset for our own API group
 	sampleclientset clientset.Interface
 
+	prLister listers.PipelineRunLister
+	prSynced cache.InformerSynced
+
 	foosLister listers.TaskRunLister
 	foosSynced cache.InformerSynced
 
@@ -61,7 +64,8 @@ type Controller struct {
 	// means we can ensure we only process a fixed amount of resources at a
 	// time, and makes it easy to ensure we are never processing the same item
 	// simultaneously in two different workers.
-	workqueue workqueue.RateLimitingInterface
+	workqueue  workqueue.RateLimitingInterface
+	workqueue2 workqueue.RateLimitingInterface
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
@@ -71,7 +75,8 @@ type Controller struct {
 func NewController(
 	kubeclientset kubernetes.Interface,
 	sampleclientset clientset.Interface,
-	fooInformer informers.TaskRunInformer) *Controller {
+	fooInformer informers.TaskRunInformer,
+	prInfomer informers.PipelineRunInformer) *Controller {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -88,11 +93,26 @@ func NewController(
 		sampleclientset: sampleclientset,
 		foosLister:      fooInformer.Lister(),
 		foosSynced:      fooInformer.Informer().HasSynced,
+		prLister:        prInfomer.Lister(),
+		prSynced:        prInfomer.Informer().HasSynced,
 		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Foos"),
+		workqueue2:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Prs"),
 		recorder:        recorder,
 	}
 
 	klog.Info("Setting up event handlers")
+
+	// Set up an event handler for when PipelineRun resources change
+	prInfomer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: controller.enqueuePr,
+		UpdateFunc: func(old, new interface{}) {
+			// controller.enqueuePr(new)
+		},
+		DeleteFunc: func(obj interface{}) {
+			controller.deletePods(obj)
+		},
+	})
+
 	// Set up an event handler for when Foo resources change
 	fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.enqueueFoo,
@@ -110,6 +130,11 @@ func NewController(
 	})
 
 	return controller
+}
+
+func (c *Controller) enqueuePr(obj interface{}) {
+	log.Println("\nCR added in the PR Workqueue")
+	c.workqueue2.Add(obj)
 }
 
 // Run will set up the event handlers for types we are interested in, as well
@@ -153,6 +178,19 @@ func (c *Controller) runWorker() {
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
 func (c *Controller) processNextWorkItem() bool {
+
+	objPr, shutdownPr := c.workqueue2.Get() // Get the PipelineRun obj from workqueue2
+	if shutdownPr {
+		klog.Info("Shutting down Pipeline Run")
+		return false
+	}
+
+	defer c.workqueue2.Forget(objPr) // prevent item to reenter queue at the end of the function
+
+	// prObject := objPr.(*v1alpha1.PipelineRun)
+	// prName := prObject.GetName()
+	// prNamespace := prObject.GetNamespace()
+
 	obj, shutdown := c.workqueue.Get() // Get the item from workqueue
 	if shutdown {
 		klog.Info("Shutting down")
@@ -184,7 +222,7 @@ func (c *Controller) processNextWorkItem() bool {
 	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
 	if err := c.syncHandler(foo, podsList); err != nil {
-		klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
+		klog.Errorf("Error while syncing the current vs desired state for Pods %v: %v\n", foo.Name, err.Error())
 		return false
 	}
 
@@ -312,6 +350,30 @@ func (c *Controller) deletePods(obj interface{}) {
 	fmt.Printf("\n Deleted all pods of CR %v \n", name)
 
 }
+
+// Creates Custom resource of Task Run
+// func (c *Controller) createTaskRun(pr *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
+// 	client := c.kubeClient
+// 	foo := &Foo{
+// 		TypeMeta: metav1.TypeMeta{
+// 			APIVersion: SchemeGroupVersion.String(),
+// 			Kind:       Kind,
+// 		},
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name: "my-foo",
+// 		},
+// 		Spec: FooSpec{
+// 			// Set fields in the spec of the custom resource object.
+// 		},
+// 	}
+// 	result, err := client.Resource(kubernetes.NewGVR(SchemeGroupVersion.Group, SchemeGroupVersion.Version, Resource)).Namespace(namespace).Create(context.Background(), foo, metav1.CreateOptions{})
+// 	if err != nil {
+// 		// Handle error.
+// 		fmt.Sprintf("Couldn't create Task Run CR - %s", err)
+// 	}
+// 	fmt.Println(result)
+// 	return result
+// }
 
 // Creates the new pod with the specified template
 func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
