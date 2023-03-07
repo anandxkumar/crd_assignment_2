@@ -47,11 +47,10 @@ func main() {
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
 
-	trInformer := exampleInformerFactory.Run().V1alpha1().TaskRuns()
+	// trInformer := exampleInformerFactory.Run().V1alpha1().TaskRuns()
 	prInformer := exampleInformerFactory.Run().V1alpha1().PipelineRuns()
 
 	controller := controller.NewController(kubeClient, exampleClient,
-		trInformer,
 		prInformer) // Ak().V1alpha1().Klusters()
 
 	stopCh := make(chan struct{})
