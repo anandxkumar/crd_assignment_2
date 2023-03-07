@@ -9,8 +9,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	// "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	// "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -135,7 +136,88 @@ func NewController(
 func (c *Controller) enqueuePr(obj interface{}) {
 	log.Println("\nCR added in the PR Workqueue")
 	c.workqueue2.Add(obj)
+
+	prObject := obj.(*v1alpha1.PipelineRun)
+	// fmt.Printf("\n\nIN PRENQUEUE FOO : %+v cool\n\n", prObject)
+	prName := prObject.GetName()
+	prNamespace := prObject.GetNamespace()
+	fmt.Printf("\nName : %+v \n", prName)
+
+	spec := prObject.Spec
+	// fmt.Printf("\nSpec : %+v \n", spec)
+	prMessage := spec.Message // Storing the message
+	prCount := spec.Count     // Storing the count
+	fmt.Printf("\n Message : %+v Count : %+v\n", prMessage, prCount)
+
+	// Creating new Task Run Object
+	// client := c.kubeclientset
+
+	// tr := &unstructured.Unstructured{
+	// 	Object: map[string]interface{}{
+	// 		"apiVersion": "run.com/v1alpha1",
+	// 		"kind":       "TaskRun",
+	// 		"metadata": map[string]interface{}{
+	// 			"name": "tr-3",
+	// 		},
+	// 		"spec": map[string]interface{}{
+	// 			"message": "Task Run new",
+	// 			"count":   3,
+	// 		},
+	// 	},
+	// }
+
+	tr := &v1alpha1.TaskRun{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "run.com/v1alpha1",
+			Kind:       "TaskRun",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "tr-new",
+			Namespace: prNamespace,
+		},
+		Spec: v1alpha1.TaskRunSpec{
+			// Set fields in the spec of the custom resource object.
+			Message: "Task Run new",
+			Count:   3,
+		},
+	}
+	// fmt.Printf("\n Task Run Object : %+v \n", tr.Spec)
+
+	c.enqueueFoo(tr)
+	// c.enqueueFoo(tr)
+
+	fmt.Printf("\n ENTERED tr successully in EnqueuFoo \n")
+	// foo := &PipelineRun{
+	// 	TypeMeta: metav1.TypeMeta{
+	// 		APIVersion: SchemeGroupVersion.String(),
+	// 		Kind:       Kind,
+	// 	},
+	// 	ObjectMeta: metav1.ObjectMeta{
+	// 		Name: "my-foo",
+	// 	},
+	// 	Spec: FooSpec{
+	// 		// Set fields in the spec of the custom resource object.
+	// 	},
+	// }
+	// result, err := client.Resource(kubernetes.NewGVR(SchemeGroupVersion.Group, SchemeGroupVersion.Version, Resource)).Namespace(namespace).Create(context.Background(), foo, metav1.CreateOptions{})
+
 }
+
+// func getSpec(obj runtime.Object) (interface{}, error) {
+// 	// Get the metadata of the custom resource object
+// 	meta, err := meta.Accessor(obj)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	// Get the Spec field of the custom resource object
+// 	spec, _, err := unstructured.NestedFieldNoCopy(obj.Object, "spec")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return spec, nil
+// }
 
 // Run will set up the event handlers for types we are interested in, as well
 // as syncing informer caches and starting workers. It will block until stopCh
@@ -144,6 +226,7 @@ func (c *Controller) enqueuePr(obj interface{}) {
 func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash() // Error handling
 	defer c.workqueue.ShutDown()    // Till work queue get empty
+	defer c.workqueue2.ShutDown()   // Till work queue get empty
 
 	// Start the informer factories to begin populating the informer caches
 	klog.Info("Starting Foo controller")
@@ -197,32 +280,37 @@ func (c *Controller) processNextWorkItem() bool {
 		return false
 	}
 
+	fmt.Printf("\n\nINSIDE processNextWorkItem, obj: +%v \n", obj)
+
 	defer c.workqueue.Forget(obj) // prevent item to reenter queue at the end of the function
 
 	item := obj.(*v1alpha1.TaskRun)
 	name := item.GetName()
-	namespace := item.GetNamespace()
+	// namespace := item.GetNamespace()
 
-	foo, err := c.foosLister.TaskRuns(namespace).Get(name)
-	if err != nil {
-		klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
-		return false
-	}
+	m := item.Spec.Message
+	desiredPods := item.Spec.Count
+
+	// foo, err := c.foosLister.TaskRuns(namespace).Get(name)
+	// if err != nil {
+	// 	klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
+	// 	return false
+	// }
 
 	// filter out if required pods are already available or not:
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": foo.Name,
-		},
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	}
+	// labelSelector := metav1.LabelSelector{
+	// 	MatchLabels: map[string]string{
+	// 		"controller": foo.Name,
+	// 	},
+	// }
+	// listOptions := metav1.ListOptions{
+	// 	LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	// }
 	// TODO: Prefer using podLister to reduce the call to K8s API.
-	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+	// podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
-	if err := c.syncHandler(foo, podsList); err != nil {
-		klog.Errorf("Error while syncing the current vs desired state for Pods %v: %v\n", foo.Name, err.Error())
+	if err := c.syncHandlerTR(m, desiredPods, name); err != nil {
+		klog.Errorf("Error while syncing the current vs desired state for Pods %v: %v\n", name, err.Error())
 		return false
 	}
 
@@ -230,80 +318,106 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // total number of 'completed' pods
-func (c *Controller) totalPodsUp(foo *v1alpha1.TaskRun) int {
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": foo.Name,
-		},
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	}
+// func (c *Controller) totalPodsUp(foo *v1alpha1.TaskRun) int {
+// 	labelSelector := metav1.LabelSelector{
+// 		MatchLabels: map[string]string{
+// 			"controller": foo.Name,
+// 		},
+// 	}
+// 	listOptions := metav1.ListOptions{
+// 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+// 	}
 
-	// Get all pods of foo namespace
-	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+// 	// Get all pods of foo namespace
+// 	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
-	upPods := 0
-	for _, pod := range podsList.Items {
-		if pod.Status.Phase == corev1.PodSucceeded {
-			upPods++
-		}
-	}
-	return upPods
+// 	upPods := 0
+// 	for _, pod := range podsList.Items {
+// 		if pod.Status.Phase == corev1.PodSucceeded {
+// 			upPods++
+// 		}
+// 	}
+// 	return upPods
+// }
+
+func (c *Controller) syncHandlerTR(m string, desiredPods int, name string) error {
+
+	// noPodsCreate := desiredPods
+	log.Printf("\nCreating desired Pods for CR %v Expected: %v\n\n", name, desiredPods)
+
+	// Creating desired number of pods
+	// for i := 0; i < noPodsCreate; i++ {
+	// 	podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
+	// 	if err != nil {
+	// 		if errors.IsAlreadyExists(err) {
+	// 			// So we try to create another pod with different name
+	// 			noPodsCreate++
+	// 		} else {
+	// 			return err
+	// 		}
+	// 	} else {
+	// 		log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
+	// 	}
+
+	// }
+
+	log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods, name)
+
+	return nil
 }
 
 // syncHandler monitors the current state & if current != desired,
 // tries to meet the desired state.
-func (c *Controller) syncHandler(foo *v1alpha1.TaskRun, podsList *corev1.PodList) error {
+// func (c *Controller) syncHandler(foo *v1alpha1.TaskRun, podsList *corev1.PodList) error {
 
-	// number of pods up for foo
-	upPods := c.totalPodsUp(foo)
+// 	// number of pods up for foo
+// 	upPods := c.totalPodsUp(foo)
 
-	// desired number of pods for foo
-	desiredPods := foo.Spec.Count
+// 	// desired number of pods for foo
+// 	desiredPods := foo.Spec.Count
 
-	// If number of upPods lower than desired Pods
-	if upPods < desiredPods {
-		noPodsCreate := desiredPods - upPods
-		log.Printf("\nNumber of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
+// 	// If number of upPods lower than desired Pods
+// 	if upPods < desiredPods {
+// 		noPodsCreate := desiredPods - upPods
+// 		log.Printf("\nNumber of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
 
-		// Creating desired number of pods
-		for i := 0; i < noPodsCreate; i++ {
-			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
-			if err != nil {
-				if errors.IsAlreadyExists(err) {
-					// So we try to create another pod with different name
-					noPodsCreate++
-				} else {
-					return err
-				}
-			} else {
-				log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
-			}
+// 		// Creating desired number of pods
+// 		for i := 0; i < noPodsCreate; i++ {
+// 			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
+// 			if err != nil {
+// 				if errors.IsAlreadyExists(err) {
+// 					// So we try to create another pod with different name
+// 					noPodsCreate++
+// 				} else {
+// 					return err
+// 				}
+// 			} else {
+// 				log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
+// 			}
 
-		}
+// 		}
 
-		log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods-upPods, foo.Name)
+// 		log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods-upPods, foo.Name)
 
-		// If number of upPods greater than desired Pods
-	} else if upPods > desiredPods {
-		noPodsDelete := upPods - desiredPods
-		log.Printf("\nNumber of upPods greater than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
+// 		// If number of upPods greater than desired Pods
+// 	} else if upPods > desiredPods {
+// 		noPodsDelete := upPods - desiredPods
+// 		log.Printf("\nNumber of upPods greater than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
 
-		for i := 0; i < noPodsDelete; i++ {
-			currDeletePod := podsList.Items[i].Name
-			err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
-			if err != nil {
-				log.Printf("Pod deletion failed for CR %v\n", foo.Name)
-				return err
-			}
-			log.Printf("Successfully deleted %v Pod for CR %v \n", currDeletePod, foo.Name)
-		}
-		log.Printf("\nSuccessfully deleted %v Pods for CR %v \n", noPodsDelete, foo.Name)
-	}
+// 		for i := 0; i < noPodsDelete; i++ {
+// 			currDeletePod := podsList.Items[i].Name
+// 			err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
+// 			if err != nil {
+// 				log.Printf("Pod deletion failed for CR %v\n", foo.Name)
+// 				return err
+// 			}
+// 			log.Printf("Successfully deleted %v Pod for CR %v \n", currDeletePod, foo.Name)
+// 		}
+// 		log.Printf("\nSuccessfully deleted %v Pods for CR %v \n", noPodsDelete, foo.Name)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // enqueueFoo takes a Foo resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
@@ -311,6 +425,7 @@ func (c *Controller) syncHandler(foo *v1alpha1.TaskRun, podsList *corev1.PodList
 func (c *Controller) enqueueFoo(obj interface{}) {
 	log.Println("\nCR added in the Workqueue")
 	c.workqueue.Add(obj)
+	fmt.Printf("IN ENQUEUE FOO :  cool\n")
 }
 
 func (c *Controller) deletePods(obj interface{}) {
