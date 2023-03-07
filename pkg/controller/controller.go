@@ -170,7 +170,9 @@ func (c *Controller) processNextWorkItem() bool {
 		klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
 		return false
 	}
-
+	fmt.Printf("\nFoo Resource: %+v \n", foo)
+	tr := createTaskRun(foo)
+	fmt.Printf("\nTask Run Resource: %+v \n", tr)
 	// filter out if required pods are already available or not:
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -212,6 +214,37 @@ func (c *Controller) totalPodsUp(foo *v1alpha1.PipelineRun) int {
 		}
 	}
 	return upPods
+}
+
+func (c *Controller) syncHandlerTR(foo *v1alpha1.PipelineRun) error {
+
+	// desired number of pods for foo
+	desiredPods := foo.Spec.Count
+
+	// If number of upPods lower than desired Pods
+
+	noPodsCreate := desiredPods
+	log.Printf("\nNumber of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, desiredPods, desiredPods)
+
+	// Creating desired number of pods
+	for i := 0; i < noPodsCreate; i++ {
+		podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				// So we try to create another pod with different name
+				noPodsCreate++
+			} else {
+				return err
+			}
+		} else {
+			log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
+		}
+
+	}
+
+	log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods, foo.Name)
+
+	return nil
 }
 
 // syncHandler monitors the current state & if current != desired,
@@ -273,6 +306,42 @@ func (c *Controller) syncHandler(foo *v1alpha1.PipelineRun, podsList *corev1.Pod
 func (c *Controller) enqueueFoo(obj interface{}) {
 	log.Println("\nCR added in the Workqueue")
 	c.workqueue.Add(obj)
+}
+
+// Create a Task Run Object
+
+func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
+	prName := foo.GetName()
+	prNamespace := foo.GetNamespace()
+	fmt.Printf("\nName : %+v \n", prName)
+
+	spec := foo.Spec
+	fmt.Printf("\nSpec : %+v \n", spec)
+	prMessage := spec.Message // Storing the message
+	prCount := spec.Count     // Storing the count
+
+	// labels := map[string]string{
+	// 	"controller": foo.Name,
+	// }
+
+	// creating TaskRun Custom Resource
+	tr := &v1alpha1.TaskRun{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "run.com/v1alpha1",
+			Kind:       "TaskRun",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      prName + "-tr",
+			Namespace: prNamespace,
+		},
+		Spec: v1alpha1.TaskRunSpec{
+			// Set fields in the spec of the custom resource object.
+			Message: prMessage,
+			Count:   prCount,
+		},
+	}
+
+	return tr
 }
 
 func (c *Controller) deletePods(obj interface{}) {
