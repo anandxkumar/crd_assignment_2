@@ -47,11 +47,12 @@ func main() {
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
 
-	// trInformer := exampleInformerFactory.Run().V1alpha1().TaskRuns()
+	trInformer := exampleInformerFactory.Run().V1alpha1().TaskRuns()
 	prInformer := exampleInformerFactory.Run().V1alpha1().PipelineRuns()
 
 	controller := controller.NewController(kubeClient, exampleClient,
-		prInformer) // Ak().V1alpha1().Klusters()
+		prInformer,
+		trInformer) // Ak().V1alpha1().Klusters()
 
 	stopCh := make(chan struct{})
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)

@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -56,6 +57,9 @@ type Controller struct {
 	foosLister listers.PipelineRunLister
 	foosSynced cache.InformerSynced
 
+	trLister listers.TaskRunLister
+	trSynced cache.InformerSynced
+
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
 	// means we can ensure we only process a fixed amount of resources at a
@@ -71,7 +75,8 @@ type Controller struct {
 func NewController(
 	kubeclientset kubernetes.Interface,
 	sampleclientset clientset.Interface,
-	fooInformer informers.PipelineRunInformer) *Controller {
+	fooInformer informers.PipelineRunInformer,
+	trInfomer informers.TaskRunInformer) *Controller {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -88,6 +93,8 @@ func NewController(
 		sampleclientset: sampleclientset,
 		foosLister:      fooInformer.Lister(),
 		foosSynced:      fooInformer.Informer().HasSynced,
+		trLister:        trInfomer.Lister(),
+		trSynced:        trInfomer.Informer().HasSynced,
 		workqueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "Foos"),
 		recorder:        recorder,
 	}
@@ -173,19 +180,27 @@ func (c *Controller) processNextWorkItem() bool {
 	fmt.Printf("\nFoo Resource: %+v \n", foo)
 	tr := createTaskRun(foo)
 	fmt.Printf("\nTask Run Resource: %+v \n", tr)
-	// filter out if required pods are already available or not:
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": foo.Name,
-		},
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	}
-	// TODO: Prefer using podLister to reduce the call to K8s API.
-	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+	// Creating TaskRun
 
-	if err := c.syncHandler(foo, podsList); err != nil {
+	taskRun, tErr := c.sampleclientset.RunV1alpha1().TaskRuns(namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+	if tErr != nil {
+		fmt.Printf("Error Creating taskrun: %v", tErr)
+	}
+
+	//taskRun, tErr := c.kubeclientset.CoreV1().Pods(tr.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+	// filter out if required pods are already available or not:
+	// labelSelector := metav1.LabelSelector{
+	// 	MatchLabels: map[string]string{
+	// 		"controller": foo.Name,
+	// 	},
+	// }
+	// listOptions := metav1.ListOptions{
+	// 	LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	// }
+	// // TODO: Prefer using podLister to reduce the call to K8s API.
+	// podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+
+	if err := c.syncHandlerTR(taskRun); err != nil {
 		klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
 		return false
 	}
@@ -216,89 +231,92 @@ func (c *Controller) totalPodsUp(foo *v1alpha1.PipelineRun) int {
 	return upPods
 }
 
-func (c *Controller) syncHandlerTR(foo *v1alpha1.PipelineRun) error {
+func (c *Controller) syncHandlerTR(tr *v1alpha1.TaskRun) error {
 
-	// desired number of pods for foo
-	desiredPods := foo.Spec.Count
+	// desired number of pods for tr
+	desiredPods := tr.Spec.Count
 
 	// If number of upPods lower than desired Pods
 
 	noPodsCreate := desiredPods
-	log.Printf("\nNumber of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, desiredPods, desiredPods)
+	log.Printf("\nCreating desired Pods for CR %v; Expected: %v\n\n", tr.Name, desiredPods)
 
 	// Creating desired number of pods
 	for i := 0; i < noPodsCreate; i++ {
-		podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
+		log.Println("---------Started Creating Pod --------------")
+		podNew, err := c.kubeclientset.CoreV1().Pods(tr.Namespace).Create(context.TODO(), createPod(tr), metav1.CreateOptions{})
+		log.Println("---------Successfully Created Pods --------------")
 		if err != nil {
 			if errors.IsAlreadyExists(err) {
 				// So we try to create another pod with different name
 				noPodsCreate++
 			} else {
+				log.Println("Returning ERROR________________________-------")
 				return err
 			}
 		} else {
-			log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
+			log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, tr.Name)
 		}
 
 	}
 
-	log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods, foo.Name)
+	log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods, tr.Name)
 
 	return nil
 }
 
 // syncHandler monitors the current state & if current != desired,
 // tries to meet the desired state.
-func (c *Controller) syncHandler(foo *v1alpha1.PipelineRun, podsList *corev1.PodList) error {
+// func (c *Controller) syncHandler(foo *v1alpha1.PipelineRun, podsList *corev1.PodList) error {
 
-	// number of pods up for foo
-	upPods := c.totalPodsUp(foo)
+// 	// number of pods up for foo
+// 	upPods := c.totalPodsUp(foo)
 
-	// desired number of pods for foo
-	desiredPods := foo.Spec.Count
+// 	// desired number of pods for foo
+// 	desiredPods := foo.Spec.Count
 
-	// If number of upPods lower than desired Pods
-	if upPods < desiredPods {
-		noPodsCreate := desiredPods - upPods
-		log.Printf("\nNumber of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
+// 	// If number of upPods lower than desired Pods
+// 	if upPods < desiredPods {
+// 		noPodsCreate := desiredPods - upPods
+// 		log.Printf("\nNumber of upPods lower than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
 
-		// Creating desired number of pods
-		for i := 0; i < noPodsCreate; i++ {
-			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
-			if err != nil {
-				if errors.IsAlreadyExists(err) {
-					// So we try to create another pod with different name
-					noPodsCreate++
-				} else {
-					return err
-				}
-			} else {
-				log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
-			}
+// 		// Creating desired number of pods
+// 		for i := 0; i < noPodsCreate; i++ {
+// 			podNew, err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Create(context.TODO(), createPod(foo), metav1.CreateOptions{})
+// 			if err != nil {
+// 				if errors.IsAlreadyExists(err) {
+// 					// So we try to create another pod with different name
+// 					noPodsCreate++
+// 				} else {
+// 					return err
+// 				}
+// 			} else {
+// 				log.Printf("Successfully created %v Pod for CR %v \n", podNew.Name, foo.Name)
+// 			}
 
-		}
+// 		}
 
-		log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods-upPods, foo.Name)
+// 		log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods-upPods, foo.Name)
 
-		// If number of upPods greater than desired Pods
-	} else if upPods > desiredPods {
-		noPodsDelete := upPods - desiredPods
-		log.Printf("\nNumber of upPods greater than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
+// 		// If number of upPods greater than desired Pods
+// 	} else if upPods > desiredPods {
+// 		noPodsDelete := upPods - desiredPods
+// 		log.Printf("\nNumber of upPods greater than desired Pods for CR %v; Current: %v Expected: %v\n\n", foo.Name, upPods, desiredPods)
 
-		for i := 0; i < noPodsDelete; i++ {
-			currDeletePod := podsList.Items[i].Name
-			err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
-			if err != nil {
-				log.Printf("Pod deletion failed for CR %v\n", foo.Name)
-				return err
-			}
-			log.Printf("Successfully deleted %v Pod for CR %v \n", currDeletePod, foo.Name)
-		}
-		log.Printf("\nSuccessfully deleted %v Pods for CR %v \n", noPodsDelete, foo.Name)
-	}
+// 		for i := 0; i < noPodsDelete; i++ {
+// 			currDeletePod := podsList.Items[i].Name
+// 			err := c.kubeclientset.CoreV1().Pods(foo.Namespace).Delete(context.TODO(), podsList.Items[i].Name, metav1.DeleteOptions{})
+// 			if err != nil {
+// 				log.Printf("Pod deletion failed for CR %v\n", foo.Name)
+// 				return err
+// 			}
+// 			log.Printf("Successfully deleted %v Pod for CR %v \n", currDeletePod, foo.Name)
+// 		}
+// 		log.Printf("\nSuccessfully deleted %v Pods for CR %v \n", noPodsDelete, foo.Name)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // enqueueFoo takes a Foo resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
@@ -320,9 +338,9 @@ func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
 	prMessage := spec.Message // Storing the message
 	prCount := spec.Count     // Storing the count
 
-	// labels := map[string]string{
-	// 	"controller": foo.Name,
-	// }
+	labels := map[string]string{
+		"controller": foo.Name,
+	}
 
 	// creating TaskRun Custom Resource
 	tr := &v1alpha1.TaskRun{
@@ -331,8 +349,13 @@ func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
 			Kind:       "TaskRun",
 		},
 		ObjectMeta: metav1.ObjectMeta{
+			Labels:    labels,
 			Name:      prName + "-tr",
 			Namespace: prNamespace,
+			UID:       types.UID("my-uid"),
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("PipelineRun")),
+			},
 		},
 		Spec: v1alpha1.TaskRunSpec{
 			// Set fields in the spec of the custom resource object.
@@ -340,7 +363,6 @@ func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
 			Count:   prCount,
 		},
 	}
-
 	return tr
 }
 
@@ -383,7 +405,7 @@ func (c *Controller) deletePods(obj interface{}) {
 }
 
 // Creates the new pod with the specified template
-func createPod(foo *v1alpha1.PipelineRun) *corev1.Pod {
+func createPod(foo *v1alpha1.TaskRun) *corev1.Pod {
 	labels := map[string]string{
 		"controller": foo.Name,
 	}
@@ -394,7 +416,7 @@ func createPod(foo *v1alpha1.PipelineRun) *corev1.Pod {
 			Name:      fmt.Sprintf(foo.Name + "-" + strconv.Itoa(rand.Intn(10000000))),
 			Namespace: foo.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("PipelineRun")),
+				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("TaskRun")),
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -410,7 +432,7 @@ func createPod(foo *v1alpha1.PipelineRun) *corev1.Pod {
 						},
 					},
 					Command: []string{
-						"bin/sh", "-c", "echo 'Message: $(foo.Spec.Message) !' && sleep 5",
+						"bin/sh", "-c", "echo 'Message: $(MESSAGE) !' && sleep 5",
 					},
 					Args: []string{
 						"-c",
