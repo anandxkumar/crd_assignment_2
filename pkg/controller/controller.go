@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -112,7 +113,22 @@ func NewController(
 			controller.enqueueFoo(new)
 		},
 		DeleteFunc: func(obj interface{}) {
-			controller.deletePods(obj)
+			controller.deletePR(obj)
+		},
+	})
+
+	// Set up an event handler for when TaskRun resources change
+	trInfomer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {},
+		UpdateFunc: func(old, new interface{}) {
+			oldFoo := old.(*v1alpha1.TaskRun)
+			newFoo := new.(*v1alpha1.TaskRun)
+			if oldFoo == newFoo {
+				return
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			controller.deleteTR(obj)
 		},
 	})
 
@@ -168,10 +184,12 @@ func (c *Controller) processNextWorkItem() bool {
 
 	defer c.workqueue.Forget(obj) // prevent item to reenter queue at the end of the function
 
+	// Method 1
 	item := obj.(*v1alpha1.PipelineRun)
 	name := item.GetName()
 	namespace := item.GetNamespace()
 
+	// Getting foo resource
 	foo, err := c.foosLister.PipelineRuns(namespace).Get(name) // Get Foo Resource
 	fmt.Println("%v", foo)
 	if errors.IsNotFound(err) {
@@ -190,6 +208,7 @@ func (c *Controller) processNextWorkItem() bool {
 		fmt.Printf("\nFoo Resource Status: %+v \n", foo.Status)
 		fmt.Printf("\nFoo Resource Status Error: %+v \n", err)
 
+		// Call SyncHandler
 		c.syncHandlerTR(foo)
 		// tr := createTaskRun(foo)
 		// fmt.Printf("\nTask Run Resource: %+v \n", tr)
@@ -223,16 +242,19 @@ func (c *Controller) processNextWorkItem() bool {
 	return true
 }
 
+// Set Current State =  Desired State
 func (c *Controller) syncHandlerTR(foo *v1alpha1.PipelineRun) error {
+	// Creating Task Run Object from foo resource
 	tr := createTaskRun(foo)
 	fmt.Printf("\nTask Run Resource: %+v \n", tr)
-	// Creating TaskRun Instance
 
+	// Creating TaskRun Instance
 	taskRun, tErr := c.sampleclientset.RunV1alpha1().TaskRuns(foo.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
 	if tErr != nil {
 		fmt.Printf("Error Creating taskrun: %v", tErr)
 	}
 
+	// Creating Pods for the TaskRun CR
 	c.createTaskRunPods(taskRun)
 
 	//taskRun, tErr := c.kubeclientset.CoreV1().Pods(tr.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
@@ -249,13 +271,14 @@ func (c *Controller) syncHandlerTR(foo *v1alpha1.PipelineRun) error {
 	// podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
 	// if err := c.syncHandlerTR(taskRun); err != nil {
-	// 	klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
+	// 	klog.Errorf("Error while syncing the current vs desired state for PipelineRun %v: %v\n", foo.Name, err.Error())
 	// 	return false
 	// }
 
 	return nil
 }
 
+// Function for Creating Pods
 func (c *Controller) createTaskRunPods(tr *v1alpha1.TaskRun) error {
 
 	// desired number of pods for tr
@@ -288,6 +311,31 @@ func (c *Controller) createTaskRunPods(tr *v1alpha1.TaskRun) error {
 	log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods, tr.Name)
 
 	return nil
+}
+
+func (c *Controller) deleteTR(obj interface{}) {
+	tr := obj.(*v1alpha1.TaskRun)
+	fmt.Println("Deleting TR-------------------")
+	fmt.Printf("TR: %+v", tr)
+
+	prName := tr.GetName()
+	prName = strings.Split(prName, "-")[0]
+	prNamespace := tr.GetNamespace()
+
+	foo, err := c.foosLister.PipelineRuns(prNamespace).Get(prName) // Get Foo Resource
+	if err != nil {
+		fmt.Printf("Error Creating foo resource from TaskRun Instance: %v", foo)
+	}
+	c.syncHandlerTR(foo)
+
+	// Creating TaskRun Instance
+	taskRun, tErr := c.sampleclientset.RunV1alpha1().TaskRuns(tr.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+	if tErr != nil {
+		fmt.Printf("Error Creating taskrun: %v", tErr)
+	}
+	fmt.Println("CReated TR-------------------")
+	// Creating Pods for the TaskRun CR
+	c.createTaskRunPods(taskRun)
 }
 
 func (c *Controller) updateFooStatus(foo *v1alpha1.PipelineRun) error {
@@ -427,42 +475,9 @@ func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
 	return tr
 }
 
-func (c *Controller) deletePods(obj interface{}) {
-
-	log.Println("\nDeleting all pods for CR")
-
-	item := obj.(*v1alpha1.PipelineRun)
-	name := item.GetName()
-	namespace := item.GetNamespace()
-
-	log.Println("namespace: ", namespace, " | name: ", name)
-
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": name,
-		},
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	}
-
-	podsList, err := c.kubeclientset.CoreV1().Pods(namespace).List(context.TODO(), listOptions)
-	if err != nil {
-		fmt.Printf("Error listing pods for custom resource %s/%s: %v\n", namespace, name, err)
-		return
-	}
-
-	for _, pod := range podsList.Items {
-		fmt.Printf("Deleting pod %s/%s\n", pod.Namespace, pod.Name)
-		err = c.kubeclientset.CoreV1().Pods(pod.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: new(int64), // Immediately delete the pod
-		})
-		if err != nil {
-			fmt.Printf("Error deleting pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
-		}
-	}
-	fmt.Printf("\n Deleted all pods of CR %v \n", name)
-
+func (c *Controller) deletePR(obj interface{}) {
+	// Finishing Obj
+	c.workqueue.Done(obj)
 }
 
 // Creates the new pod with the specified template

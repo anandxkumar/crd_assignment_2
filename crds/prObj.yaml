@@ -1,10 +1,7 @@
 apiVersion: "run.com/v1alpha1"
 kind: PipelineRun
 metadata:
-  name: pr-4
+  name: pr4
 spec:
   message: "NEW Demo Message"
-  count: 3
-status:
-  message: ""
-  count: 0
+  count: 2
