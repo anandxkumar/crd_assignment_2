@@ -172,20 +172,68 @@ func (c *Controller) processNextWorkItem() bool {
 	name := item.GetName()
 	namespace := item.GetNamespace()
 
-	foo, err := c.foosLister.PipelineRuns(namespace).Get(name)
+	foo, err := c.foosLister.PipelineRuns(namespace).Get(name) // Get Foo Resource
+	fmt.Println("%v", foo)
+	if errors.IsNotFound(err) {
+		fmt.Println("CR NOT FOUND----------------------------------------------")
+	}
 	if err != nil {
 		klog.Errorf("error %s, Getting the foo resource from lister.", err.Error())
 		return false
 	}
-	fmt.Printf("\nFoo Resource: %+v \n", foo)
+	fmt.Printf("\nFoo Resource Spec: %+v \n", foo.Spec)
+	fmt.Printf("\nFoo Resource Status: %+v \n", foo.Status)
+
+	if foo.Spec.Message != foo.Status.Message {
+		fmt.Printf("\n______________________INSSIIDDEEE TRACK_____________\n")
+		err := c.updateFooStatus(item)
+		fmt.Printf("\nFoo Resource Status: %+v \n", foo.Status)
+		fmt.Printf("\nFoo Resource Status Error: %+v \n", err)
+
+		c.syncHandlerTR(foo)
+		// tr := createTaskRun(foo)
+		// fmt.Printf("\nTask Run Resource: %+v \n", tr)
+		// Creating TaskRun
+
+		// _, tErr := c.sampleclientset.RunV1alpha1().TaskRuns(namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+		// if tErr != nil {
+		// 	fmt.Printf("Error Creating taskrun: %v", tErr)
+		// }
+
+		// taskRun, tErr := c.kubeclientset.CoreV1().Pods(tr.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+		// filter out if required pods are already available or not:
+		// labelSelector := metav1.LabelSelector{
+		// 	MatchLabels: map[string]string{
+		// 		"controller": foo.Name,
+		// 	},
+		// }
+		// listOptions := metav1.ListOptions{
+		// 	LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+		// }
+		// // TODO: Prefer using podLister to reduce the call to K8s API.
+		// podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+
+		// if err := c.syncHandlerTR(taskRun); err != nil {
+		// 	klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
+		// 	return false
+		// }
+
+	}
+
+	return true
+}
+
+func (c *Controller) syncHandlerTR(foo *v1alpha1.PipelineRun) error {
 	tr := createTaskRun(foo)
 	fmt.Printf("\nTask Run Resource: %+v \n", tr)
-	// Creating TaskRun
+	// Creating TaskRun Instance
 
-	taskRun, tErr := c.sampleclientset.RunV1alpha1().TaskRuns(namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+	taskRun, tErr := c.sampleclientset.RunV1alpha1().TaskRuns(foo.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
 	if tErr != nil {
 		fmt.Printf("Error Creating taskrun: %v", tErr)
 	}
+
+	c.createTaskRunPods(taskRun)
 
 	//taskRun, tErr := c.kubeclientset.CoreV1().Pods(tr.Namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
 	// filter out if required pods are already available or not:
@@ -200,38 +248,15 @@ func (c *Controller) processNextWorkItem() bool {
 	// // TODO: Prefer using podLister to reduce the call to K8s API.
 	// podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
 
-	if err := c.syncHandlerTR(taskRun); err != nil {
-		klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
-		return false
-	}
+	// if err := c.syncHandlerTR(taskRun); err != nil {
+	// 	klog.Errorf("Error while syncing the current vs desired state for TrackPod %v: %v\n", foo.Name, err.Error())
+	// 	return false
+	// }
 
-	return true
+	return nil
 }
 
-// total number of 'completed' pods
-func (c *Controller) totalPodsUp(foo *v1alpha1.PipelineRun) int {
-	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"controller": foo.Name,
-		},
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
-	}
-
-	// Get all pods of foo namespace
-	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
-
-	upPods := 0
-	for _, pod := range podsList.Items {
-		if pod.Status.Phase == corev1.PodSucceeded {
-			upPods++
-		}
-	}
-	return upPods
-}
-
-func (c *Controller) syncHandlerTR(tr *v1alpha1.TaskRun) error {
+func (c *Controller) createTaskRunPods(tr *v1alpha1.TaskRun) error {
 
 	// desired number of pods for tr
 	desiredPods := tr.Spec.Count
@@ -263,6 +288,42 @@ func (c *Controller) syncHandlerTR(tr *v1alpha1.TaskRun) error {
 	log.Printf("\nSuccessfully created %v Pods for CR %v \n", desiredPods, tr.Name)
 
 	return nil
+}
+
+func (c *Controller) updateFooStatus(foo *v1alpha1.PipelineRun) error {
+
+	// fooCopy := foo.DeepCopy()
+	foo.Status.Message = "Try" // fooCopy.Spec.Message
+	foo.Status.Count = 3       // fooCopy.Spec.Count
+	// If the CustomResourceSubresources feature gate is not enabled,
+	// we must use Update instead of UpdateStatus to update the Status block of the Foo resource.
+	// UpdateStatus will not allow changes to the Spec of the resource,
+	// which is ideal for ensuring nothing other than resource status has been updated.
+	_, err := c.sampleclientset.RunV1alpha1().PipelineRuns(foo.Namespace).UpdateStatus(context.Background(), foo, metav1.UpdateOptions{})
+	return err
+}
+
+// total number of 'completed' pods
+func (c *Controller) totalPodsUp(foo *v1alpha1.PipelineRun) int {
+	labelSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"controller": foo.Name,
+		},
+	}
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+	}
+
+	// Get all pods of foo namespace
+	podsList, _ := c.kubeclientset.CoreV1().Pods(foo.Namespace).List(context.TODO(), listOptions)
+
+	upPods := 0
+	for _, pod := range podsList.Items {
+		if pod.Status.Phase == corev1.PodSucceeded {
+			upPods++
+		}
+	}
+	return upPods
 }
 
 // syncHandler monitors the current state & if current != desired,
@@ -350,7 +411,7 @@ func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Labels:    labels,
-			Name:      prName + "-tr",
+			Name:      prName + "-" + strconv.Itoa(rand.Intn(100)),
 			Namespace: prNamespace,
 			UID:       types.UID("my-uid"),
 			OwnerReferences: []metav1.OwnerReference{

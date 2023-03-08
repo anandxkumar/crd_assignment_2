@@ -39,10 +39,10 @@ klusters                          kl           ak.dev/v1alpha1                  
 - We need to specifiy that the Kluster Spec is a Kubernetes object, for this we will create a `register.go` file in the same directory that will register the Kluster type to scheme.
 - `register.go` code can be generated using `https://github.com/kubernetes/code-generator`.
 - Create `doc.go` for declaring tabs. `tabs` are basically used to call a particular instruction for all valid instance over the codebase. For eg- `+k8s:deepcopy-gen=package` means that a deep copy must be generated at every package. This is global. If we declare it anywhere else, it will be local. 
-- Install `code-generator` by `$ go get k8s.io/code-generator` (Path: `Home/go/pkg/mod/k8s.io/code-generator@v0.26.1`)
-- Create alias path `$ execDir=~/go/pkg/mod/k8s.io/code-generator@v0.26.1`
+- Install `code-generator` by `$ go get k8s.io/code-generator` (Path: `Home/go/pkg/mod/k8s.io/code-generator@v0.26.2`)
+- Create alias path `$ execDir=~/go/pkg/mod/k8s.io/code-generator@v0.26.2`
 - Create deepcopy, lister, clientset and informers by runnning `$ "${execDir}"/generate-groups.sh all github.com/anandxkumar/crd_assignment_2/pkg/client github.com/anandxkumar/crd_assignment_2/pkg/apis run.com:v1alpha1 --go-header-file "${execDir}"/hack/boilerplate.go.txt`
-- Now the deepcopy, clientset, Informers and listeners would have been added to the locla directory.
+- Now the deepcopy, clientset, Informers and listeners would have been added to the local directory.
 - Create the `main.go`. In `main.go` we will declare the `kubeconfig`, create `clientsets` and the gnerate clusters.
 - To add all dependency : `$ go mod tidy`, then build using `$ go build` 
 - To create CRD, you can create it manually or can use `controller-gen` command i.e. `$ go install sigs.k8s.io/kustomize/kustomize@latest` and  `$ controller-gen paths=github.com/anandxkumar/kluster/pkg/apis/ak.dev/v1alpha1  crd:trivialVersions=true rbac:roleName=controller-perms output:crd:artifacts:config=config/crd/bases`

@@ -11,10 +11,16 @@ type PipelineRun struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec PipelineRunSpec `json:"spec"`
+	Spec   PipelineRunSpec   `json:"spec"`
+	Status PipelineRunStatus `json:"status"`
 }
 
 type PipelineRunSpec struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+type PipelineRunStatus struct {
 	Message string `json:"message"`
 	Count   int    `json:"count"`
 }
@@ -34,10 +40,16 @@ type TaskRun struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec TaskRunSpec `json:"spec"`
+	Spec   TaskRunSpec   `json:"spec"`
+	Status TaskRunStatus `json:"status"`
 }
 
 type TaskRunSpec struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+type TaskRunStatus struct {
 	Message string `json:"message"`
 	Count   int    `json:"count"`
 }

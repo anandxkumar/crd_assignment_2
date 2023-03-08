@@ -102,6 +102,18 @@ func (c *FakePipelineRuns) Update(ctx context.Context, pipelineRun *v1alpha1.Pip
 	return obj.(*v1alpha1.PipelineRun), err
 }
 
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+func (c *FakePipelineRuns) UpdateStatus(ctx context.Context, pipelineRun *v1alpha1.PipelineRun, opts v1.UpdateOptions) (*v1alpha1.PipelineRun, error) {
+	obj, err := c.Fake.
+		Invokes(testing.NewUpdateSubresourceAction(pipelinerunsResource, "status", c.ns, pipelineRun), &v1alpha1.PipelineRun{})
+
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1alpha1.PipelineRun), err
+}
+
 // Delete takes name of the pipelineRun and deletes it. Returns an error if one occurs.
 func (c *FakePipelineRuns) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
