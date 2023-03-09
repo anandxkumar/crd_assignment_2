@@ -4,4 +4,4 @@ metadata:
   name: pr4
 spec:
   message: "NEW Demo Message"
-  count: 2
+  count: 1
