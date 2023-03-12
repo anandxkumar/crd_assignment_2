@@ -12,7 +12,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	// "k8s.io/apimachinery/pkg/labels"
+
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -116,16 +118,44 @@ func NewController(
 			controller.deletePR(obj)
 		},
 	})
-
 	// Set up an event handler for when TaskRun resources change
+	// trInfomer.Informer().AddEventHandler(cache.FilteringResourceEventHandler{
+	// 	FilterFunc: contra.FilterController(&v1alpha1.PipelineRun{}),
+	// 	Handler:    contra.HandleAll(controller.enqueueFoo),
+	// })
 	trInfomer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		DeleteFunc: func(obj interface{}) {
 			controller.deleteTR(obj)
 		},
 	})
-
 	return controller
 }
+
+// func FilterControllerGK(gk schema.GroupKind) func(obj interface{}) bool {
+// 	return func(obj interface{}) bool {
+// 		object, ok := obj.(metav1.Object)
+// 		if !ok {
+// 			return false
+// 		}
+
+// 		owner := metav1.GetControllerOf(object)
+// 		if owner == nil {
+// 			return false
+// 		}
+
+// 		ownerGV, err := schema.ParseGroupVersion(owner.APIVersion)
+// 		return err == nil &&
+// 			ownerGV.Group == gk.Group &&
+// 			owner.Kind == gk.Kind
+// 	}
+// }
+
+// // FilterController makes it simple to create FilterFunc's for use with
+// // cache.FilteringResourceEventHandler that filter based on the
+// // controlling resource.
+// func FilterController(r kmeta.OwnerRefable) func(obj interface{}) bool {
+// 	return FilterControllerGK(r.GetGroupVersionKind().GroupKind())
+// }
 
 // Run will set up the event handlers for types we are interested in, as well
 // as syncing informer caches and starting workers. It will block until stopCh
