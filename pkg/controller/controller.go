@@ -15,6 +15,11 @@ import (
 
 	// "k8s.io/apimachinery/pkg/labels"
 
+	"github.com/anandxkumar/crd_assignment_2/pkg/apis/run.com/v1alpha1"
+	clientset "github.com/anandxkumar/crd_assignment_2/pkg/client/clientset/versioned"
+	samplescheme "github.com/anandxkumar/crd_assignment_2/pkg/client/clientset/versioned/scheme"
+	informers "github.com/anandxkumar/crd_assignment_2/pkg/client/informers/externalversions/run.com/v1alpha1"
+	listers "github.com/anandxkumar/crd_assignment_2/pkg/client/listers/run.com/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -25,12 +30,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-
-	"github.com/anandxkumar/crd_assignment_2/pkg/apis/run.com/v1alpha1"
-	clientset "github.com/anandxkumar/crd_assignment_2/pkg/client/clientset/versioned"
-	samplescheme "github.com/anandxkumar/crd_assignment_2/pkg/client/clientset/versioned/scheme"
-	informers "github.com/anandxkumar/crd_assignment_2/pkg/client/informers/externalversions/run.com/v1alpha1"
-	listers "github.com/anandxkumar/crd_assignment_2/pkg/client/listers/run.com/v1alpha1"
 )
 
 const controllerAgentName = "pipelinerun"
@@ -107,11 +106,6 @@ func NewController(
 	fooInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: controller.enqueueFoo,
 		UpdateFunc: func(old, new interface{}) {
-			oldFoo := old.(*v1alpha1.PipelineRun)
-			newFoo := new.(*v1alpha1.PipelineRun)
-			if oldFoo == newFoo {
-				return
-			}
 			controller.enqueueFoo(new)
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -123,11 +117,11 @@ func NewController(
 	// 	FilterFunc: contra.FilterController(&v1alpha1.PipelineRun{}),
 	// 	Handler:    contra.HandleAll(controller.enqueueFoo),
 	// })
-	trInfomer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		DeleteFunc: func(obj interface{}) {
-			controller.deleteTR(obj)
-		},
-	})
+	// trInfomer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	// 	DeleteFunc: func(obj interface{}) {
+	// 		controller.deleteTR(obj)
+	// 	},
+	// })
 	return controller
 }
 
@@ -207,10 +201,25 @@ func (c *Controller) processNextWorkItem() bool {
 	defer c.workqueue.Forget(obj) // prevent item to reenter queue at the end of the function
 
 	// Method 1 : Getting PipelineRun Resource
-	item := obj.(*v1alpha1.PipelineRun)
-	name := item.GetName()
-	namespace := item.GetNamespace()
+	// item := obj.(*v1alpha1.PipelineRun)
+	// name := item.GetName()
+	// namespace := item.GetNamespace()
+	var key string
+	var ok bool
 
+	if key, ok = obj.(string); !ok {
+		// As the item in the workqueue is actually invalid, we call
+		// Forget here else we'd go into a loop of attempting to
+		// process a work item that is invalid.
+		// c.workqueue.Forget(obj)
+		fmt.Println("ERROR GETTING KEY ____________________________--")
+		utilruntime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
+	}
+	fmt.Println(" GETTING Namespace and name ____________________________--")
+	fmt.Printf("\nKey: %v \n", key)
+	namespace, name, _ := cache.SplitMetaNamespaceKey(key)
+	fmt.Printf("\nName: %v \nNamespace: %v", name, namespace)
+	fmt.Println(" GETTING FOOOo ____________________________--")
 	// Getting foo resource of PipelineRun Type
 	foo, err := c.foosLister.PipelineRuns(namespace).Get(name) // Get Foo Resource
 	// fmt.Println("%v", foo)
@@ -234,7 +243,7 @@ func (c *Controller) processNextWorkItem() bool {
 		}
 
 		fmt.Printf("\nFoo Resource Status: %+v \n", foo.Status)
-		c.updateFooStatus(item)
+		c.updateFooStatus(foo)
 		// fmt.Printf("\nFoo Resource Status Error: %+v \n", errS)
 		fmt.Printf("\nFoo Resource Spec: %+v \n", foo.Spec)
 		fmt.Printf("\nFoo Resource Status: %+v \n", foo.Status)
@@ -351,7 +360,15 @@ func (c *Controller) updateFooStatus(foo *v1alpha1.PipelineRun) error {
 // passed resources of any type other than Foo.
 func (c *Controller) enqueueFoo(obj interface{}) {
 	log.Println("\nCR added in the Workqueue")
-	c.workqueue.Add(obj)
+	var key string
+	var err error
+	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	fmt.Printf("Key: %v", key)
+	c.workqueue.Add(key)
+	log.Println("\n Successfully CR added in the Workqueue")
 }
 
 // Create a Task Run Object
@@ -379,10 +396,10 @@ func createTaskRun(foo *v1alpha1.PipelineRun) *v1alpha1.TaskRun {
 			Kind:       "TaskRun",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Labels:    labels,
-			Name:      prName + "-" + strconv.Itoa(rand.Intn(100)),
-			Namespace: prNamespace,
-			UID:       types.UID("my-uid"),
+			Labels:       labels,
+			GenerateName: fmt.Sprintf("%s-", prName),
+			Namespace:    prNamespace,
+			UID:          types.UID("my-uid"),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(foo, v1alpha1.SchemeGroupVersion.WithKind("PipelineRun")),
 			},
